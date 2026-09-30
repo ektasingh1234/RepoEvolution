@@ -14,16 +14,16 @@ global_diff_engine = SemanticEntityDiffEngine()
 global_llm_provider = GeminiProvider()
 
 
+from src.core.security import validate_repository_path
+from src.core.exceptions import InvalidRepositoryPathError, InvalidCommitRefError, RepoEvolutionError, InternalProcessingError
+
 @router.post("/repo/compare", response_model=CompareResponse)
 def compare_repository_commits(payload: CompareRequest):
     repo_dir_str = payload.repo_path or current_repo_path or str(settings.BASE_DIR)
-    repo_dir = Path(repo_dir_str).resolve()
+    repo_dir = validate_repository_path(repo_dir_str)
 
     if not (repo_dir / ".git").exists():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Target path is not a valid Git repository: {repo_dir_str}"
-        )
+        raise InvalidRepositoryPathError(f"Target path is not a valid Git repository: {repo_dir_str}")
 
     try:
         loader = GitSnapshotLoader(repo_dir)
@@ -95,7 +95,9 @@ def compare_repository_commits(payload: CompareRequest):
             model_used=model_name
         )
 
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Semantic compare failed: {str(e)}")
+    except ValueError:
+        raise InvalidCommitRefError("Invalid or missing Git commit reference.")
+    except RepoEvolutionError:
+        raise
+    except Exception:
+        raise InternalProcessingError("An internal repository comparison failure occurred.")

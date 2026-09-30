@@ -19,12 +19,13 @@ global_llm_provider = GeminiProvider()
 current_repo_path: Optional[str] = None
 
 
+from src.core.security import validate_repository_path
+from src.core.exceptions import RepoEvolutionError, InternalProcessingError
+
 @router.post("/repo/ingest", response_model=IngestSummary)
 def ingest_repository(payload: IngestRequest):
     global current_repo_path
-    repo_dir = Path(payload.repo_path).resolve()
-    if not repo_dir.exists() or not repo_dir.is_dir():
-        raise HTTPException(status_code=400, detail=f"Invalid repository path: {payload.repo_path}")
+    repo_dir = validate_repository_path(payload.repo_path)
 
     try:
         total_files, total_entities = global_indexer.index_repository(repo_dir)
@@ -44,8 +45,10 @@ def ingest_repository(payload: IngestRequest):
             status="success",
             message=f"Successfully ingested {total_files} files and extracted {total_entities} entities."
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+    except RepoEvolutionError:
+        raise
+    except Exception:
+        raise InternalProcessingError("An internal repository processing failure occurred.")
 
 
 @router.get("/repo/overview")
