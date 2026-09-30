@@ -118,18 +118,75 @@ DEFAULT_GEMINI_MODEL=gemini-2.5-flash
 
 ## 🏃 Running the Application
 
-### Option A: Launch Streamlit Developer Interface
+### Option A: Launch via Docker Compose (Recommended for Production / Containerized Environments)
+```bash
+# Build and start both FastAPI backend and Streamlit frontend containers
+docker compose up -d
+
+# View service logs
+docker compose logs -f
+
+# Stop container services
+docker compose down
+```
+* **Streamlit Interface**: `http://localhost:8501`
+* **FastAPI Backend Service**: `http://localhost:8000`
+* **Swagger API Docs**: `http://localhost:8000/docs`
+
+### Option B: Launch Streamlit Developer Interface Locally
 ```bash
 streamlit run ui/app.py
 ```
 Open your browser at `http://localhost:8501`.
 
-### Option B: Launch FastAPI Backend Server
+### Option C: Launch FastAPI Backend Server Locally
 ```bash
 uvicorn src.api.main:app --reload --port 8000
 ```
 * **Interactive API Documentation (Swagger)**: `http://localhost:8000/docs`
 * **Alternative API Documentation (ReDoc)**: `http://localhost:8000/redoc`
+
+---
+
+## 🔒 Security Guidelines & Environment Configuration
+
+> ⚠️ **CRITICAL SECURITY REQUIREMENT**:
+> **Never commit `.env` or hardcode API credentials!** `.env` is listed in `.gitignore` and `.dockerignore`.
+> Always configure secrets using environment variables or container runtime environment injections.
+
+### Required Environment Variables:
+| Variable Name | Default Value | Description |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | *(None)* | Google Gemini API Key for grounded copilot LLM responses. |
+| `DEFAULT_GEMINI_MODEL` | `gemini-2.5-flash` | Active Gemini model used for synthesis. |
+| `PROJECT_NAME` | `RepoEvolution` | Project branding label. |
+| `VERSION` | `1.0.0` | API engine version string. |
+
+---
+
+## 🌐 FastAPI Endpoint Directory
+
+| Endpoint Method & Path | Summary & Function |
+| :--- | :--- |
+| `GET /health` | Health check endpoint returning system status. |
+| `GET /` | Root endpoint returning API metadata. |
+| `POST /api/v1/repo/ingest` | Ingests repository directory, parses Python AST, and builds vector index. |
+| `POST /api/v1/repo/search` | Performs hybrid BM25 + FAISS RRF search across codebase. |
+| `POST /api/v1/repo/compare` | Calculates AST semantic diffs between two Git commit revisions. |
+| `POST /api/v1/repo/drift` | Evaluates target commit against multi-commit history for architectural drift. |
+| `GET /api/v1/graph/data` | Retrieves dependency and call graph nodes and edges. |
+| `POST /api/v1/copilot/ask` | Submits natural language queries to evidence-grounded Copilot. |
+
+---
+
+## 🚀 Production Deployment & Containerization Notes
+
+* **Container Architecture**: Multi-stage lightweight Python container image built via `Dockerfile` with system dependencies (`git`, `curl`).
+* **Service Networking**: `docker-compose.yml` isolates the FastAPI backend (`repoevolution-backend`) and Streamlit frontend (`repoevolution-frontend`) on an internal bridge network.
+* **Secret Injection**: In production deployments (e.g. Kubernetes, AWS ECS, Docker Swarm), pass `GEMINI_API_KEY` via container secret management or environment variable injection:
+  ```bash
+  GEMINI_API_KEY="your_production_key" docker compose up -d
+  ```
 
 ---
 
