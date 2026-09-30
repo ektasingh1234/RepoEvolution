@@ -1,0 +1,13 @@
+Evaluate the following code implementation against its corresponding documentation or unit tests to identify potential drift or inconsistencies.
+
+Code Implementation AST Entity:
+{code_entity}
+
+Documentation / Test Snippet:
+{doc_or_test_snippet}
+
+INSTRUCTIONS:
+1. Compare argument names, return types, parameter requirements, or described behavior.
+2. Flag any discrepancy as a potential review signal.
+3. Assign severity: LOW, MEDIUM, or HIGH.
+4. Do NOT claim the code or documentation is definitively broken; frame as review signals with clear evidence citations.

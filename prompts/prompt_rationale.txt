@@ -1,0 +1,13 @@
+Analyze the following commit metadata and AST semantic changes to infer the likely developer rationale behind this change.
+
+Commit Message:
+{commit_message}
+
+Semantic AST Changes:
+{ast_changes}
+
+INSTRUCTIONS:
+1. Explain WHAT changed in code logic and signatures.
+2. Infer WHY this change was likely made based ONLY on the evidence provided in the commit message and AST diff.
+3. Explicitly state what is direct evidence vs what is an inference.
+4. Output structured analysis in markdown format.
