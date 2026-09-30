@@ -115,5 +115,55 @@ MAIN_CSS = """
         font-weight: 600;
         color: #f0f6fc;
     }
+
+    /* Citation & Evidence Card */
+    .citation-card {
+        background-color: #161b22;
+        border-left: 4px solid #58a6ff;
+        border-top: 1px solid #30363d;
+        border-right: 1px solid #30363d;
+        border-bottom: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+    }
+
+    .citation-ref {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: #58a6ff;
+        margin-bottom: 4px;
+    }
+
+    .citation-snippet {
+        font-size: 0.85rem;
+        color: #8b949e;
+        font-style: italic;
+    }
+
+    /* Status Indicator Badges */
+    .status-badge-active {
+        display: inline-block;
+        background-color: rgba(46, 160, 67, 0.2);
+        color: #3fb950;
+        border: 1px solid #2ea043;
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .status-badge-offline {
+        display: inline-block;
+        background-color: rgba(110, 118, 129, 0.2);
+        color: #8b949e;
+        border: 1px solid #6e7681;
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
 </style>
 """
+

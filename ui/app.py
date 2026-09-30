@@ -67,18 +67,29 @@ with st.sidebar:
     )
 
     if st.button("🚀 Ingest Repository", use_container_width=True, type="primary"):
-        with st.spinner("Parsing AST entities & indexing codebase..."):
+        with st.status("Ingesting repository...", expanded=True) as status_box:
             try:
+                st.write("🔍 Parsing Python AST entities & building hybrid index...")
                 files_count, entities_count = st.session_state.indexer.index_repository(repo_input)
+                st.write(f"⚡ Indexed {files_count} files ({entities_count} AST entities)")
+
+                st.write("🕸️ Constructing dependency relationship graph...")
                 st.session_state.graph_builder.build_graph(st.session_state.indexer.entities)
+
                 st.session_state.repo_ingested = True
                 st.session_state.current_repo = repo_input
-                st.success(f"Ingested {files_count} files ({entities_count} entities)")
+                status_box.update(label=f"Ingested {files_count} files ({entities_count} entities)", state="complete", expanded=False)
+                st.toast(f"Ingested {entities_count} AST entities!", icon="🚀")
             except Exception as e:
-                st.error(f"Ingestion failed: {e}")
+                status_box.update(label="Ingestion failed", state="error", expanded=True)
+                st.error(f"Ingestion error: {e}")
 
     st.markdown("---")
-    st.markdown(f"**LLM Model:** `{st.session_state.llm_provider.get_available_model_name()}`")
+    is_llm_active = bool(st.session_state.llm_provider.client and st.session_state.llm_provider.api_key)
+    model_name = st.session_state.llm_provider.get_available_model_name()
+    status_html = '<span class="status-badge-active">🟢 Active</span>' if is_llm_active else '<span class="status-badge-offline">⚪ Offline (AST Mode)</span>'
+    st.markdown(f"**LLM Status:** {status_html}", unsafe_allow_html=True)
+    st.markdown(f"**LLM Model:** `{model_name}`")
     st.markdown(f"**Embedding Model:** `{settings.EMBEDDING_MODEL_NAME}`")
     st.markdown(f"**Phase 3 Status:** `DriftGuard Active`")
 
@@ -409,6 +420,10 @@ with tab_graph:
 # ---------------------------------------------------------
 with tab_copilot:
     st.subheader("Ask RepoEvolution Grounded Copilot")
+    provider_name = st.session_state.llm_provider.__class__.__name__
+    model_disp = st.session_state.llm_provider.get_available_model_name()
+    st.caption(f"**Provider:** `{provider_name}` | **Model:** `{model_disp}` | **Grounded Retrieval:** AST + BM25 + FAISS")
+
     if not st.session_state.repo_ingested:
         st.info("Please ingest a repository first.")
     else:
@@ -444,6 +459,18 @@ with tab_copilot:
                 st.markdown("### Copilot Answer")
                 st.markdown(copilot_resp.answer)
 
-                st.markdown("### Grounded Evidence Citations")
-                for cite in copilot_resp.citations:
-                    st.markdown(f"- 📄 `{cite.reference}` — *{cite.snippet}*")
+                st.markdown("### 📄 Grounded Evidence Citations")
+                if copilot_resp.citations:
+                    for idx, cite in enumerate(copilot_resp.citations, 1):
+                        st.markdown(
+                            f"""
+                            <div class="citation-card">
+                                <div class="citation-ref">#{idx} | {cite.reference}</div>
+                                <div class="citation-snippet">"{cite.snippet}"</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                else:
+                    st.info("No explicit citations retrieved.")
+
