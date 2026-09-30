@@ -77,6 +77,50 @@ class CompareResponse(BaseModel):
     model_used: Optional[str] = None
 
 
+# Phase 3: DriftGuard Schemas
+class DriftType(str, Enum):
+    DEPENDENCY_DRIFT = "DEPENDENCY_DRIFT"
+    API_DRIFT = "API_DRIFT"
+    STRUCTURAL_DRIFT = "STRUCTURAL_DRIFT"
+
+
+class DriftSeverity(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class DriftFinding(BaseModel):
+    drift_id: str
+    drift_type: DriftType
+    severity: DriftSeverity
+    entity: str = Field(..., description="Entity name or ID where drift was detected")
+    description: str = Field(..., description="Summary explanation of the drift finding")
+    historical_pattern: str = Field(..., description="Established pattern across historical commits")
+    current_pattern: str = Field(..., description="Current implementation pattern in target commit")
+    evidence_commits: List[str] = Field(default_factory=list, description="SHAs of supporting historical commits")
+    evidence_entities: List[str] = Field(default_factory=list, description="Historical entity IDs providing evidence")
+    confidence: float = Field(..., description="Confidence score based on historical frequency (0.0 to 1.0)")
+    recommendation_basis: str = Field(..., description="Evidence-grounded developer review recommendation")
+
+
+class DriftRequest(BaseModel):
+    repo_path: Optional[str] = Field(None, description="Repository directory path")
+    target_commit: str = Field("HEAD", description="Target Git commit/revision to evaluate for drift")
+    history_depth: int = Field(5, description="Number of historical commits to inspect")
+    min_confidence: float = Field(0.70, description="Minimum pattern confidence threshold (0.0 to 1.0)")
+    include_explanation: bool = Field(True, description="Whether to generate LLM explanation")
+
+
+class DriftResponse(BaseModel):
+    repo_path: str
+    target_commit: str
+    findings: List[DriftFinding]
+    total_findings: int
+    llm_explanation: Optional[str] = None
+    model_used: Optional[str] = None
+
+
 class IngestRequest(BaseModel):
     repo_path: str = Field(..., description="Absolute or relative path to target repository")
     force_reindex: bool = Field(False, description="Whether to rebuild index from scratch")

@@ -16,6 +16,9 @@ from src.copilot.llm_provider import GeminiProvider
 from src.semantic_diff.git_loader import GitSnapshotLoader
 from src.semantic_diff.entity_diff import SemanticEntityDiffEngine
 from src.semantic_diff.summary_builder import SemanticSummaryBuilder
+from src.driftguard.history_analyzer import HistoryAnalyzer
+from src.driftguard.pattern_extractor import PatternExtractor
+from src.driftguard.drift_engine import DriftDetectionEngine
 from ui.styles import MAIN_CSS
 
 # Page Configuration
@@ -77,13 +80,14 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(f"**LLM Model:** `{st.session_state.llm_provider.get_available_model_name()}`")
     st.markdown(f"**Embedding Model:** `{settings.EMBEDDING_MODEL_NAME}`")
-    st.markdown(f"**Phase 2 Status:** `SemanticDiff Active`")
+    st.markdown(f"**Phase 3 Status:** `DriftGuard Active`")
 
 # Main Navigation Tabs
-tab_overview, tab_search, tab_diff, tab_graph, tab_copilot = st.tabs([
+tab_overview, tab_search, tab_diff, tab_drift, tab_graph, tab_copilot = st.tabs([
     "📊 Repository Overview",
     "🔍 RepoSense Search",
     "🔀 Semantic Compare",
+    "🛡️ DriftGuard",
     "🕸️ ChangeGraph",
     "💬 Grounded Copilot"
 ])
@@ -177,7 +181,6 @@ with tab_diff:
 
                 st.markdown(f"### Comparison: `{base_sha[:8]}` ➔ `{target_sha[:8]}`")
                 
-                # Summary Metric Cards
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("Added", summary.total_added)
                 m2.metric("Removed", summary.total_removed)
@@ -265,7 +268,122 @@ with tab_diff:
                 st.error(f"Semantic comparison error: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: CHANGEGRAPH
+# TAB 4: DRIFTGUARD (PHASE 3)
+# ---------------------------------------------------------
+with tab_drift:
+    st.subheader("🛡️ DriftGuard: Evidence-Driven Historical Pattern Drift Analysis")
+    st.caption("Evaluates target commit code against established historical repository patterns (Dependency, API Signature, Structural location).")
+
+    drift_repo_path = st.session_state.current_repo or str(PROJECT_ROOT)
+    
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1:
+        drift_target = st.text_input("Target Commit / Revision", value="HEAD", help="e.g., HEAD, sha")
+    with col_d2:
+        history_depth = st.slider("History Depth (Commits)", min_value=2, max_value=15, value=5)
+    with col_d3:
+        min_conf = st.slider("Min Confidence Threshold", min_value=0.50, max_value=0.95, value=0.70, step=0.05)
+
+    if st.button("🛡️ Scan Repository for Drift Findings", type="primary", use_container_width=True):
+        with st.spinner("Analyzing historical commits & evaluating pattern drift..."):
+            try:
+                analyzer = HistoryAnalyzer(drift_repo_path)
+                snapshots = analyzer.get_historical_snapshots(target_commit=drift_target, history_depth=history_depth)
+                patterns = PatternExtractor.extract_patterns(snapshots)
+
+                loader = GitSnapshotLoader(drift_repo_path)
+                target_sha = loader.resolve_commit_sha(drift_target)
+                target_entities, _ = loader.parse_commit_snapshot(target_sha)
+
+                engine = DriftDetectionEngine(min_confidence=min_conf)
+                findings = engine.detect_drift(target_entities, patterns)
+
+                st.markdown(f"### Drift Scan Results for `{target_sha[:8]}` (History Window: {len(snapshots)} commits)")
+                
+                dm1, dm2, dm3, dm4 = st.columns(4)
+                high_sev = sum(1 for f in findings if f.severity.value == "HIGH")
+                med_sev = sum(1 for f in findings if f.severity.value == "MEDIUM")
+                low_sev = sum(1 for f in findings if f.severity.value == "LOW")
+                
+                dm1.metric("Total Findings", len(findings))
+                dm2.metric("High Severity", high_sev)
+                dm3.metric("Medium Severity", med_sev)
+                dm4.metric("Low Severity", low_sev)
+
+                st.markdown("---")
+                st.markdown("#### Detailed DriftGuard Findings")
+
+                if not findings:
+                    st.success("No architectural drift findings detected above confidence threshold!")
+                else:
+                    for idx, f in enumerate(findings, 1):
+                        badge_color = "🔴" if f.severity.value == "HIGH" else ("🟡" if f.severity.value == "MEDIUM" else "🔵")
+                        exp_header = f"{badge_color} #{idx} | [{f.drift_type.value}] Entity: '{f.entity}' (Confidence: {f.confidence:.2f})"
+                        
+                        with st.expander(exp_header):
+                            st.markdown(f"**Description:** {f.description}")
+                            
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown(f"**Established Historical Pattern:**")
+                                st.info(f.historical_pattern)
+                            with c2:
+                                st.markdown(f"**Current Implementation Pattern:**")
+                                st.warning(f.current_pattern)
+
+                            st.markdown(f"**Evidence Commits:** `{', '.join([c[:8] for c in f.evidence_commits])}`")
+                            st.markdown(f"**Recommendation Basis:** {f.recommendation_basis}")
+
+                # LLM Explanation
+                st.markdown("---")
+                st.markdown("#### LLM DriftGuard Explanation")
+                with st.spinner("Generating evidence-grounded drift explanation..."):
+                    findings_lines = []
+                    for f in findings:
+                        findings_lines.append(
+                            f"[{f.drift_type.value}] ({f.severity.value}) Entity: '{f.entity}'\n"
+                            f"  Historical Pattern: {f.historical_pattern}\n"
+                            f"  Current Pattern: {f.current_pattern}\n"
+                            f"  Evidence Commits: {[c[:8] for c in f.evidence_commits]}\n"
+                            f"  Confidence: {f.confidence:.2f}\n"
+                        )
+                    findings_details_text = "\n".join(findings_lines) if findings_lines else "No architectural drift findings detected."
+
+                    try:
+                        system_template = settings.get_prompt_template("driftguard_system.txt")
+                    except FileNotFoundError:
+                        system_template = "Analyze Drift:\n<driftguard_evidence>\nTarget: {target_commit}\nFindings:\n{findings_details}\n</driftguard_evidence>"
+
+                    full_prompt = system_template.format(
+                        target_commit=target_sha[:8],
+                        min_confidence=min_conf,
+                        total_findings=len(findings),
+                        findings_details=findings_details_text
+                    )
+
+                    if st.session_state.llm_provider.client and st.session_state.llm_provider.api_key:
+                        try:
+                            res = st.session_state.llm_provider.client.models.generate_content(
+                                model=st.session_state.llm_provider.active_model,
+                                contents=full_prompt
+                            )
+                            st.markdown(res.text or "No explanation generated.")
+                        except Exception as ex:
+                            st.warning(f"LLM Warning: {ex}")
+                    else:
+                        st.markdown(
+                            f"### [Offline DriftGuard Evidence Explanation]\n\n"
+                            f"**Target Commit:** `{target_sha[:8]}` | **Min Confidence Threshold:** `{min_conf}`\n\n"
+                            f"#### Summary of Findings ({len(findings)} detected):\n"
+                            + ("\n".join([f"- **[{f.drift_type.value}]** `{f.entity}`: {f.description} (Confidence: {f.confidence:.2f})" for f in findings]) if findings else "- No drift findings detected above confidence threshold.")
+                            + "\n\n*(Note: GEMINI_API_KEY is unconfigured/offline. Structured DriftGuard evidence computed directly.)*"
+                        )
+
+            except Exception as e:
+                st.error(f"DriftGuard scan error: {e}")
+
+# ---------------------------------------------------------
+# TAB 5: CHANGEGRAPH
 # ---------------------------------------------------------
 with tab_graph:
     st.subheader("Dependency & Call Relationship Graph")
@@ -287,7 +405,7 @@ with tab_graph:
                     st.write("No downstream dependents found for this entity.")
 
 # ---------------------------------------------------------
-# TAB 5: GROUNDED COPILOT
+# TAB 6: GROUNDED COPILOT
 # ---------------------------------------------------------
 with tab_copilot:
     st.subheader("Ask RepoEvolution Grounded Copilot")
