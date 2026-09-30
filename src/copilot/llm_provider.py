@@ -63,19 +63,17 @@ class GeminiProvider(LLMProvider):
             return settings.DEFAULT_GEMINI_MODEL
 
         preferred_models = [
-            settings.DEFAULT_GEMINI_MODEL,
-            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-latest",
+            settings.DEFAULT_GEMINI_MODEL,
+            "gemini-3.8-flash",
             "gemini-3.5-flash",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
+            "gemini-2.5-pro",
         ]
 
         try:
-            # Query models if supported
             available_models = [m.name for m in self.client.models.list()]
             for pref in preferred_models:
                 for avail in available_models:
@@ -149,9 +147,12 @@ class GeminiProvider(LLMProvider):
 
         models_to_try = [self.active_model] + [
             m for m in [
+                "gemini-3.7-flash",
+                "gemini-3.6-flash",
+                "gemini-3.1-flash-lite",
+                "gemini-flash-latest",
                 "gemini-3.8-flash",
                 "gemini-3.5-flash",
-                "gemini-2.5-flash",
             ] if m != self.active_model
         ]
 
@@ -163,6 +164,7 @@ class GeminiProvider(LLMProvider):
                     contents=full_prompt,
                 )
                 answer_text = response.text or "No text returned by Gemini API."
+                self.active_model = model
 
                 return CopilotResponse(
                     question=question,
@@ -173,6 +175,7 @@ class GeminiProvider(LLMProvider):
                     groundedness_score=0.95,
                 )
             except Exception as e:
+                logger.warning(f"Model {model} failed in generate_grounded_answer: {e}")
                 last_error = e
 
         error_answer = f"Error querying Gemini API ({self.active_model}): {str(last_error)}"
