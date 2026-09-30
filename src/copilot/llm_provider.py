@@ -12,6 +12,10 @@ except ImportError:
     HAVE_GEMINI_SDK = False
 
 
+from src.core.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 class LLMProvider(ABC):
     """
     Abstract Base Class for LLM providers (GeminiProvider, OpenAIProvider, MockProvider).
@@ -51,7 +55,7 @@ class GeminiProvider(LLMProvider):
                 self.client = genai.Client(api_key=self.api_key)
                 self.active_model = self._verify_or_select_model()
             except Exception as e:
-                print(f"[Warning] Failed to initialize Gemini Client: {e}")
+                logger.warning(f"Failed to initialize Gemini Client: {e}")
 
     def _verify_or_select_model(self) -> str:
         """Verify configured model availability or select valid available model."""
@@ -80,7 +84,7 @@ class GeminiProvider(LLMProvider):
             if available_models:
                 return available_models[0].replace("models/", "")
         except Exception as e:
-            print(f"[Info] Model verification check fallback to default model: {e}")
+            logger.info(f"Model verification check fallback to default model: {e}")
 
         return settings.DEFAULT_GEMINI_MODEL
 

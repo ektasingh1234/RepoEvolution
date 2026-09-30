@@ -9,6 +9,10 @@ from src.core.models import CodeEntity, SearchResult
 from src.reposense.base_parser import BaseParser
 from src.reposense.python_parser import PythonASTParser
 
+from src.core.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 try:
     from sentence_transformers import SentenceTransformer
     import faiss
@@ -44,7 +48,7 @@ class RepositoryIndexer:
                 else:
                     self.embedding_dimension = self.embed_model.get_sentence_embedding_dimension()
             except Exception as e:
-                print(f"[Warning] Failed to load SentenceTransformer: {e}")
+                logger.warning(f"Failed to load SentenceTransformer: {e}")
 
     def _tokenize(self, text: str) -> List[str]:
         """Simple code-friendly tokenizer splitting on non-alphanumeric chars."""

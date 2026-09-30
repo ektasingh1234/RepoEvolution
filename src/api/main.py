@@ -7,6 +7,10 @@ from src.api.routes.repo import router as repo_router
 from src.api.routes.diff import router as diff_router
 from src.api.routes.drift import router as drift_router
 
+from src.core.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -26,6 +30,7 @@ app.add_middleware(
 
 @app.exception_handler(RepoEvolutionError)
 def repo_evolution_exception_handler(request: Request, exc: RepoEvolutionError):
+    logger.warning(f"Domain exception on {request.url.path}: [{exc.error_code}] {exc.message}")
     return JSONResponse(
         status_code=exc.status_code,
         content={

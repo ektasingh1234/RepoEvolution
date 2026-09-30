@@ -148,3 +148,33 @@ def test_security_validator_unit():
     with pytest.raises(RepositoryNotFoundError) as exc_info:
         validate_repository_path("C:/nonexistent_repo_dir_999")
     assert "nonexistent_repo_dir_999" not in str(exc_info.value)
+
+
+def test_missing_required_fields_search():
+    response = client.post(
+        "/api/v1/repo/search",
+        json={}
+    )
+    assert response.status_code == 422
+
+
+def test_compare_invalid_commit_reference():
+    response = client.post(
+        "/api/v1/repo/compare",
+        json={"repo_path": str(Path.cwd()), "base_commit": "nonexistent_sha_0000000000", "target_commit": "HEAD"}
+    )
+    assert response.status_code in (400, 404)
+    data = response.json()
+    assert "error_code" in data
+    assert data["error_code"] in ("INVALID_COMMIT_REF", "INVALID_REPOSITORY_PATH")
+
+
+def test_drift_invalid_commit_reference():
+    response = client.post(
+        "/api/v1/repo/drift",
+        json={"repo_path": str(Path.cwd()), "target_commit": "nonexistent_sha_0000000000"}
+    )
+    assert response.status_code in (400, 404)
+    data = response.json()
+    assert "error_code" in data
+    assert data["error_code"] in ("INVALID_COMMIT_REF", "INVALID_REPOSITORY_PATH")
