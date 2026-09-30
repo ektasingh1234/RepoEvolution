@@ -60,7 +60,12 @@ class GeminiProvider(LLMProvider):
 
         preferred_models = [
             settings.DEFAULT_GEMINI_MODEL,
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
             "gemini-2.5-flash",
+            "gemini-2.0-flash",
             "gemini-1.5-flash",
             "gemini-1.5-pro",
         ]
@@ -138,28 +143,40 @@ class GeminiProvider(LLMProvider):
         full_prompt = system_template.format(evidence_bundle=evidence_summary)
         full_prompt += f"\n\nUser Question: {question}\n\nProvide your evidence-grounded answer:"
 
-        try:
-            response = self.client.models.generate_content(
-                model=self.active_model,
-                contents=full_prompt,
-            )
-            answer_text = response.text or "No text returned by Gemini API."
+        models_to_try = [self.active_model] + [
+            m for m in [
+                "gemini-3.8-flash",
+                "gemini-3.5-flash",
+                "gemini-2.5-flash",
+            ] if m != self.active_model
+        ]
 
-            return CopilotResponse(
-                question=question,
-                answer=answer_text,
-                citations=citations,
-                retrieved_entities=retrieved_entities,
-                model_used=self.active_model,
-                groundedness_score=0.95,
-            )
-        except Exception as e:
-            error_answer = f"Error querying Gemini API ({self.active_model}): {str(e)}"
-            return CopilotResponse(
-                question=question,
-                answer=error_answer,
-                citations=citations,
-                retrieved_entities=retrieved_entities,
-                model_used=self.active_model,
-                groundedness_score=0.0,
-            )
+        last_error = None
+        for model in models_to_try:
+            try:
+                response = self.client.models.generate_content(
+                    model=model,
+                    contents=full_prompt,
+                )
+                answer_text = response.text or "No text returned by Gemini API."
+
+                return CopilotResponse(
+                    question=question,
+                    answer=answer_text,
+                    citations=citations,
+                    retrieved_entities=retrieved_entities,
+                    model_used=model,
+                    groundedness_score=0.95,
+                )
+            except Exception as e:
+                last_error = e
+
+        error_answer = f"Error querying Gemini API ({self.active_model}): {str(last_error)}"
+        return CopilotResponse(
+            question=question,
+            answer=error_answer,
+            citations=citations,
+            retrieved_entities=retrieved_entities,
+            model_used=self.active_model,
+            groundedness_score=0.0,
+        )

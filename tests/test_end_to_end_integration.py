@@ -215,7 +215,7 @@ class PaymentService:
     assert copilot_res is not None
     assert copilot_res.answer is not None
     assert len(copilot_res.answer) > 0
-    assert copilot_res.model_used in ("offline-evidence-retriever", provider.active_model)
+    assert copilot_res.model_used == "offline-evidence-retriever" or copilot_res.model_used.startswith("gemini-") or copilot_res.model_used == provider.active_model
     assert len(copilot_res.citations) >= 1
 
     # Cleanup Windows file locks cleanly

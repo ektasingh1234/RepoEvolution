@@ -28,9 +28,9 @@ def run_phase_3_5_audit():
     print("=================================================================\n")
 
     # 1. API Key Verification
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
     if gemini_key and gemini_key.strip():
-        print(f"[API STATUS] GEMINI_API_KEY detected (Length: {len(gemini_key)}). Real LLM API verification active.")
+        print("[API STATUS] GEMINI_API_KEY configured. Real LLM API verification active.")
         real_api_available = True
     else:
         print("[API STATUS] GEMINI_API_KEY is unconfigured. Deterministic offline evidence fallback active.")
