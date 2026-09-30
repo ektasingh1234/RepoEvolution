@@ -26,15 +26,15 @@ Phase 1 implements the complete core ingestion, indexing, dependency graph, REST
 
 ### 2. Install Dependencies
 ```bash
-git clone https://github.com/your-username/RepoEvolution.git
+git clone https://github.com/ektasingh1234/RepoEvolution.git
 cd RepoEvolution
 
 # Create virtual environment
-python -m venv venv
-# Windows:
-venv\Scripts\activate
+python -m venv .venv
+# Windows (PowerShell / CMD):
+.venv\Scripts\activate
 # Linux/macOS:
-source venv/bin/activate
+source .venv/bin/activate
 
 # Install required packages
 pip install -r requirements.txt
@@ -43,6 +43,9 @@ pip install -r requirements.txt
 ### 3. Environment Configuration
 Copy `.env.example` to `.env`:
 ```bash
+# Windows PowerShell:
+Copy-Item .env.example .env
+# Linux / macOS / Bash:
 cp .env.example .env
 ```
 Edit `.env` to supply your **Google Gemini API Key**:
@@ -74,7 +77,10 @@ uvicorn src.api.main:app --reload --port 8000
 
 Run the complete Pytest suite for Phase 1:
 ```bash
-pytest -v
+# Windows:
+.\.venv\Scripts\python.exe -m pytest -v
+# Linux/macOS:
+.venv/bin/pytest -v
 ```
 
 ---
