@@ -200,7 +200,7 @@ class SemanticEntityDiffEngine:
             )
 
         # Check docstring change
-        if base_e.docstring != target_e.docstring and base_e.code_content == target_e.code_content:
+        if base_e.docstring != target_e.docstring:
             diffs.append(
                 SemanticEntityDiff(
                     change_id=f"doc::{base_e.id}",
