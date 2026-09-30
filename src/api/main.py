@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.core.config import settings
 from src.api.routes.repo import router as repo_router
+from src.api.routes.diff import router as diff_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(repo_router)
+app.include_router(diff_router)
 
 
 @app.get("/")

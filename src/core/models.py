@@ -26,6 +26,57 @@ class CodeEntity(BaseModel):
     decorators: List[str] = Field(default_factory=list, description="List of decorators if any")
 
 
+class SemanticChangeType(str, Enum):
+    ADDED = "ADDED"
+    REMOVED = "REMOVED"
+    MODIFIED = "MODIFIED"
+    RENAMED = "RENAMED"
+    SIGNATURE_CHANGED = "SIGNATURE_CHANGED"
+    DEPENDENCY_CHANGED = "DEPENDENCY_CHANGED"
+    DOCSTRING_CHANGED = "DOCSTRING_CHANGED"
+
+
+class SemanticEntityDiff(BaseModel):
+    change_id: str = Field(..., description="Unique identifier for this entity change")
+    entity_type: EntityType
+    entity_name: str
+    file_before: Optional[str] = Field(None, description="File path in base commit")
+    file_after: Optional[str] = Field(None, description="File path in target commit")
+    change_type: SemanticChangeType
+    similarity_score: float = Field(1.0, description="Cosine/Levenshtein similarity score (0.0 to 1.0)")
+    before_summary: Optional[str] = Field(None, description="Signature or snippet in base commit")
+    after_summary: Optional[str] = Field(None, description="Signature or snippet in target commit")
+    affected_dependencies: List[str] = Field(default_factory=list, description="Dependencies changed or affected")
+    evidence: str = Field(..., description="Concrete explanation of what changed in AST node")
+
+
+class SemanticDiffSummary(BaseModel):
+    total_added: int = 0
+    total_removed: int = 0
+    total_modified: int = 0
+    total_signature_changed: int = 0
+    total_renamed: int = 0
+    total_dependency_changed: int = 0
+    categorized_summaries: List[str] = Field(default_factory=list, description="Evidence-grounded high-level summary statements")
+
+
+class CompareRequest(BaseModel):
+    repo_path: Optional[str] = Field(None, description="Repository directory path (defaults to ingested repo)")
+    base_commit: str = Field(..., description="Base Git commit SHA or branch/tag name (e.g. HEAD~1, main, sha1)")
+    target_commit: str = Field(..., description="Target Git commit SHA or branch/tag name (e.g. HEAD, feature, sha2)")
+    top_k: int = Field(10, description="Max diff items to return")
+    include_explanation: bool = Field(True, description="Whether to include LLM-generated explanation")
+
+
+class CompareResponse(BaseModel):
+    base_commit: str
+    target_commit: str
+    summary: SemanticDiffSummary
+    entity_diffs: List[SemanticEntityDiff]
+    llm_explanation: Optional[str] = None
+    model_used: Optional[str] = None
+
+
 class IngestRequest(BaseModel):
     repo_path: str = Field(..., description="Absolute or relative path to target repository")
     force_reindex: bool = Field(False, description="Whether to rebuild index from scratch")

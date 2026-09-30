@@ -12,9 +12,10 @@ Phase 1 implements the complete core ingestion, indexing, dependency graph, REST
 1. **RepoSense AST Parser**: Native Python AST parsing via `BaseParser` abstraction for extracting classes, functions, methods, docstrings, and call dependencies.
 2. **Hybrid Search Index**: Combines sparse keyword search (**BM25**) with dense semantic vector embeddings (**sentence-transformers/all-MiniLM-L6-v2** + **FAISS**) using Reciprocal Rank Fusion (RRF).
 3. **ChangeGraph**: Directed dependency and call graph built using **NetworkX** to compute downstream impact propagation.
-4. **Grounded Copilot**: RAG pipeline powered by **Gemini Provider** abstraction (`LLMProvider`) that forces answers to cite exact file lines (`[filepath#Lstart-Lend]`).
-5. **REST API**: Asynchronous FastAPI endpoints (`/api/v1/repo/ingest`, `/api/v1/repo/search`, `/api/v1/graph/data`, `/api/v1/copilot/ask`).
-6. **Streamlit UI**: Dark mode developer dashboard with interactive tabbed interface.
+4. **SemanticDiff (Phase 2)**: AST-aware Git commit comparison engine (`GitSnapshotLoader` + `SemanticEntityDiffEngine`) classifying changes into `ADDED`, `REMOVED`, `MODIFIED`, `RENAMED`, `SIGNATURE_CHANGED`, and `DEPENDENCY_CHANGED` without modifying working tree.
+5. **Grounded Copilot**: RAG pipeline powered by **Gemini Provider** abstraction (`LLMProvider`) that forces answers to cite exact file lines (`[filepath#Lstart-Lend]`).
+6. **REST API**: Asynchronous FastAPI endpoints (`/api/v1/repo/ingest`, `/api/v1/repo/search`, `/api/v1/repo/compare`, `/api/v1/graph/data`, `/api/v1/copilot/ask`).
+7. **Streamlit UI**: Dark mode developer dashboard with interactive tabs (Overview, Search, Semantic Compare, ChangeGraph, Copilot).
 
 ---
 

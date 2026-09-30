@@ -13,6 +13,9 @@ from src.core.models import CodeEntity
 from src.reposense.indexer import RepositoryIndexer
 from src.changegraph.graph_builder import DependencyGraphBuilder
 from src.copilot.llm_provider import GeminiProvider
+from src.semantic_diff.git_loader import GitSnapshotLoader
+from src.semantic_diff.entity_diff import SemanticEntityDiffEngine
+from src.semantic_diff.summary_builder import SemanticSummaryBuilder
 from ui.styles import MAIN_CSS
 
 # Page Configuration
@@ -33,6 +36,8 @@ if "graph_builder" not in st.session_state:
     st.session_state.graph_builder = DependencyGraphBuilder()
 if "llm_provider" not in st.session_state:
     st.session_state.llm_provider = GeminiProvider()
+if "diff_engine" not in st.session_state:
+    st.session_state.diff_engine = SemanticEntityDiffEngine()
 if "repo_ingested" not in st.session_state:
     st.session_state.repo_ingested = False
 if "current_repo" not in st.session_state:
@@ -72,12 +77,13 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(f"**LLM Model:** `{st.session_state.llm_provider.get_available_model_name()}`")
     st.markdown(f"**Embedding Model:** `{settings.EMBEDDING_MODEL_NAME}`")
-    st.markdown(f"**Phase 1 Status:** `Active Foundation`")
+    st.markdown(f"**Phase 2 Status:** `SemanticDiff Active`")
 
 # Main Navigation Tabs
-tab_overview, tab_search, tab_graph, tab_copilot = st.tabs([
+tab_overview, tab_search, tab_diff, tab_graph, tab_copilot = st.tabs([
     "📊 Repository Overview",
     "🔍 RepoSense Search",
+    "🔀 Semantic Compare",
     "🕸️ ChangeGraph",
     "💬 Grounded Copilot"
 ])
@@ -134,8 +140,6 @@ with tab_search:
             
             for idx, res in enumerate(results, 1):
                 e = res.entity
-                badge_cls = "badge-class" if e.entity_type.value == "class" else ("badge-func" if e.entity_type.value == "function" else "badge-method")
-                
                 with st.expander(f"#{idx} | {e.name} ({e.entity_type.value}) - RRF Score: {res.score} [{res.retrieval_type}]"):
                     st.markdown(f"**File:** `{e.file_path}` (Lines {e.start_line}-{e.end_line})")
                     st.markdown(f"**Signature:** `{e.signature}`")
@@ -144,7 +148,124 @@ with tab_search:
                     st.code(e.code_content, language="python")
 
 # ---------------------------------------------------------
-# TAB 3: CHANGEGRAPH
+# TAB 3: SEMANTIC COMPARE (PHASE 2)
+# ---------------------------------------------------------
+with tab_diff:
+    st.subheader("🔀 Semantic Git Commit Comparison (AST Entity Diff)")
+    st.caption("Compares AST node additions, deletions, signature modifications, and dependency changes between two Git commits without checking out code.")
+
+    target_repo_path = st.session_state.current_repo or str(PROJECT_ROOT)
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        base_commit = st.text_input("Base Commit / Revision", value="HEAD~1", help="e.g., HEAD~1, main, or commit SHA")
+    with col_b:
+        target_commit = st.text_input("Target Commit / Revision", value="HEAD", help="e.g., HEAD, feature-branch, or commit SHA")
+
+    if st.button("🔀 Compare Commits Semantically", type="primary", use_container_width=True):
+        with st.spinner(f"Loading AST snapshots for '{base_commit}' vs '{target_commit}'..."):
+            try:
+                loader = GitSnapshotLoader(target_repo_path)
+                base_sha = loader.resolve_commit_sha(base_commit)
+                target_sha = loader.resolve_commit_sha(target_commit)
+
+                base_entities, _ = loader.parse_commit_snapshot(base_sha)
+                target_entities, _ = loader.parse_commit_snapshot(target_sha)
+
+                diffs = st.session_state.diff_engine.diff_entities(base_entities, target_entities)
+                summary = SemanticSummaryBuilder.build_summary(diffs)
+
+                st.markdown(f"### Comparison: `{base_sha[:8]}` ➔ `{target_sha[:8]}`")
+                
+                # Summary Metric Cards
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Added", summary.total_added)
+                m2.metric("Removed", summary.total_removed)
+                m3.metric("Modified", summary.total_modified)
+                m4.metric("Signature Changed", summary.total_signature_changed)
+                m5.metric("Renamed / Moved", summary.total_renamed)
+
+                st.markdown("#### High-Level Categorized Summaries")
+                for summary_stmt in summary.categorized_summaries:
+                    st.markdown(f"- 📌 {summary_stmt}")
+
+                st.markdown("---")
+                st.markdown("#### Structured Entity Diff Details")
+
+                if not diffs:
+                    st.success("No AST semantic changes detected between these commits.")
+                else:
+                    for idx, diff_item in enumerate(diffs, 1):
+                        ch_type = diff_item.change_type.value
+                        exp_title = f"#{idx} | [{ch_type}] {diff_item.entity_name} ({diff_item.entity_type.value})"
+                        
+                        with st.expander(exp_title):
+                            c_left, c_right = st.columns(2)
+                            with c_left:
+                                st.markdown(f"**Before:** `{diff_item.file_before or 'N/A'}`")
+                                if diff_item.before_summary:
+                                    st.code(diff_item.before_summary, language="python")
+                            with c_right:
+                                st.markdown(f"**After:** `{diff_item.file_after or 'N/A'}`")
+                                if diff_item.after_summary:
+                                    st.code(diff_item.after_summary, language="python")
+
+                            st.markdown(f"**Evidence:** {diff_item.evidence}")
+                            st.markdown(f"**Similarity Score:** `{diff_item.similarity_score}`")
+                            if diff_item.affected_dependencies:
+                                st.markdown(f"**Affected Dependencies:** `{', '.join(diff_item.affected_dependencies)}`")
+
+                # Generate LLM Explanation
+                st.markdown("---")
+                st.markdown("#### LLM SemanticDiff Architectural Explanation")
+                with st.spinner("Generating evidence-grounded explanation..."):
+                    diff_lines = []
+                    for d in diffs[:10]:
+                        diff_lines.append(
+                            f"[{d.change_type.value}] {d.entity_name} ({d.entity_type.value})\n"
+                            f"  Files: before='{d.file_before}', after='{d.file_after}'\n"
+                            f"  Evidence: {d.evidence}\n"
+                            f"  Dependencies affected: {d.affected_dependencies}\n"
+                        )
+                    diff_details_text = "\n".join(diff_lines) if diff_lines else "No entity diffs detected."
+                    summary_text = " | ".join(summary.categorized_summaries)
+
+                    try:
+                        system_template = settings.get_prompt_template("prompt_semantic_diff.txt")
+                    except FileNotFoundError:
+                        system_template = "Analyze AST changes:\n<semantic_diff_evidence>\nBase: {base_commit}\nTarget: {target_commit}\nSummary: {summary_text}\nDiffs:\n{diff_details}\n</semantic_diff_evidence>"
+
+                    full_prompt = system_template.format(
+                        base_commit=base_sha[:8],
+                        target_commit=target_sha[:8],
+                        summary_text=summary_text,
+                        total_diffs=len(diffs),
+                        diff_details=diff_details_text
+                    )
+
+                    if st.session_state.llm_provider.client and st.session_state.llm_provider.api_key:
+                        try:
+                            res = st.session_state.llm_provider.client.models.generate_content(
+                                model=st.session_state.llm_provider.active_model,
+                                contents=full_prompt
+                            )
+                            st.markdown(res.text or "No explanation generated.")
+                        except Exception as ex:
+                            st.warning(f"LLM Warning: {ex}")
+                    else:
+                        st.markdown(
+                            f"### [Offline SemanticDiff Evidence Explanation]\n\n"
+                            f"**Base Commit:** `{base_sha[:8]}` | **Target Commit:** `{target_sha[:8]}`\n\n"
+                            f"#### Categorized Summary:\n"
+                            + "\n".join([f"- {s}" for s in summary.categorized_summaries])
+                            + "\n\n*(Note: GEMINI_API_KEY is unconfigured/offline. AST diff evidence computed directly.)*"
+                        )
+
+            except Exception as e:
+                st.error(f"Semantic comparison error: {e}")
+
+# ---------------------------------------------------------
+# TAB 4: CHANGEGRAPH
 # ---------------------------------------------------------
 with tab_graph:
     st.subheader("Dependency & Call Relationship Graph")
@@ -166,7 +287,7 @@ with tab_graph:
                     st.write("No downstream dependents found for this entity.")
 
 # ---------------------------------------------------------
-# TAB 4: GROUNDED COPILOT
+# TAB 5: GROUNDED COPILOT
 # ---------------------------------------------------------
 with tab_copilot:
     st.subheader("Ask RepoEvolution Grounded Copilot")
