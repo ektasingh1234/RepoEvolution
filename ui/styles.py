@@ -315,13 +315,30 @@ MAIN_CSS = """
         box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
     }
 
-    /* Standard Primary & Action Button Styling - Unified Blue Accent */
-    .stButton button[kind="primary"],
-    .stButton button[data-testid="baseButton-primary"],
-    div[data-testid="stButton"] > button[kind="primary"],
-    div[data-testid="stButton"] > button[data-testid="baseButton-primary"],
+    /* GLOBAL MASTER OVERRIDE FOR ALL STREAMLIT BUTTONS - ZERO ORANGE/CORAL */
+    :root {
+        --primary-color: #2563eb !important;
+        --st-color-primary: #2563eb !important;
+        --st-button-primary-bg: #2563eb !important;
+        --st-button-primary-border: #3b82f6 !important;
+        --st-button-primary-color: #ffffff !important;
+    }
+
+    /* All Action & Primary Buttons (Ask Copilot, Analyze, Compare, Drift, Search, Login, Signup, etc.) */
+    button[data-testid="stBaseButton-primary"],
+    button[data-testid="baseButton-primary"],
+    .stButton > button[data-testid="stBaseButton-primary"],
+    .stButton > button[data-testid="baseButton-primary"],
+    .stButton > button[kind="primary"],
+    .stButton > button,
+    div[data-testid="stButton"] button,
+    div[data-testid="stFormSubmitButton"] button,
+    div[data-testid="stElementContainer"] button[data-testid="stBaseButton-primary"],
+    div[data-testid="stElementContainer"] button[data-testid="baseButton-primary"],
     button[kind="primary"],
-    button[data-testid="baseButton-primary"] {
+    button[type="primary"],
+    button[type="submit"],
+    form button {
         background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
         background-color: #2563eb !important;
         color: #ffffff !important;
@@ -334,12 +351,14 @@ MAIN_CSS = """
         transition: all 0.2s ease !important;
     }
 
-    .stButton button[kind="primary"]:hover,
-    .stButton button[data-testid="baseButton-primary"]:hover,
-    div[data-testid="stButton"] > button[kind="primary"]:hover,
-    div[data-testid="stButton"] > button[data-testid="baseButton-primary"]:hover,
+    /* Hover States for All Buttons */
+    button[data-testid="stBaseButton-primary"]:hover,
+    button[data-testid="baseButton-primary"]:hover,
+    .stButton > button:hover,
+    div[data-testid="stButton"] button:hover,
+    div[data-testid="stFormSubmitButton"] button:hover,
     button[kind="primary"]:hover,
-    button[data-testid="baseButton-primary"]:hover {
+    button[type="submit"]:hover {
         background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
         background-color: #3b82f6 !important;
         border-color: #60a5fa !important;
@@ -348,14 +367,15 @@ MAIN_CSS = """
         box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important;
     }
 
-    .stButton button[kind="primary"]:focus,
-    .stButton button[data-testid="baseButton-primary"]:focus,
-    button[kind="primary"]:focus,
+    /* Active & Focus States for All Buttons */
+    button[data-testid="stBaseButton-primary"]:focus,
     button[data-testid="baseButton-primary"]:focus,
-    .stButton button[kind="primary"]:active,
-    .stButton button[data-testid="baseButton-primary"]:active,
-    button[kind="primary"]:active,
-    button[data-testid="baseButton-primary"]:active {
+    button[data-testid="stBaseButton-primary"]:active,
+    button[data-testid="baseButton-primary"]:active,
+    .stButton > button:active,
+    div[data-testid="stButton"] button:active,
+    div[data-testid="stFormSubmitButton"] button:active,
+    button[kind="primary"]:active {
         background: #1d4ed8 !important;
         background-color: #1d4ed8 !important;
         border-color: #3b82f6 !important;
@@ -363,7 +383,10 @@ MAIN_CSS = """
         box-shadow: 0 2px 8px rgba(37, 99, 235, 0.6) !important;
     }
 
-    .stButton button[kind="secondary"], .stButton button:not([kind="primary"]) {
+    /* Secondary / Utility Buttons (e.g. Clear Conversation, Logout) */
+    button[data-testid="stBaseButton-secondary"],
+    button[data-testid="baseButton-secondary"],
+    .stButton button[kind="secondary"] {
         background-color: #0f1524 !important;
         border: 1px solid #1e293b !important;
         color: #cbd5e1 !important;
@@ -372,9 +395,12 @@ MAIN_CSS = """
         transition: all 0.2s ease !important;
     }
 
-    .stButton button:not([kind="primary"]):hover {
+    button[data-testid="stBaseButton-secondary"]:hover,
+    button[data-testid="baseButton-secondary"]:hover,
+    .stButton button[kind="secondary"]:hover {
         border-color: #3b82f6 !important;
         color: #ffffff !important;
+        background-color: #162036 !important;
     }
 
     /* Dashboard Metrics Cards (Native + HTML Container) */

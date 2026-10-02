@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core.config import settings
+from src.core.security import validate_repository_path
 from src.core.models import CodeEntity
 from src.reposense.indexer import RepositoryIndexer
 from src.changegraph.graph_builder import DependencyGraphBuilder
@@ -53,9 +54,25 @@ if "repo_ingested" not in st.session_state:
 if "current_repo" not in st.session_state:
     st.session_state.current_repo = ""
 if "last_analyzed" not in st.session_state:
-    st.session_state.last_analyzed = ""
-if "copilot_chat_history" not in st.session_state:
-    st.session_state.copilot_chat_history = []
+    st.session_state.last_analyzed = None
+if "last_semantic_summary" not in st.session_state:
+    st.session_state.last_semantic_summary = None
+if "last_semantic_diffs" not in st.session_state:
+    st.session_state.last_semantic_diffs = None
+if "last_base_sha" not in st.session_state:
+    st.session_state.last_base_sha = ""
+if "last_target_sha" not in st.session_state:
+    st.session_state.last_target_sha = ""
+if "current_question" not in st.session_state:
+    st.session_state.current_question = ""
+if "current_answer" not in st.session_state:
+    st.session_state.current_answer = ""
+if "current_citations" not in st.session_state:
+    st.session_state.current_citations = []
+if "current_entities" not in st.session_state:
+    st.session_state.current_entities = []
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
 
 # Helper for Graceful Gemini 429 / Exception Handling
 def render_quota_error_card():
@@ -125,6 +142,26 @@ if not st.session_state.authenticated:
 
     st.stop()
 
+# Helper for formatting repository display name for UI
+def format_repo_display_name(repo_path_or_url: str) -> str:
+    """Format repository path or URL for clean UI display."""
+    if not repo_path_or_url:
+        return "No Repository"
+    s = repo_path_or_url.strip()
+    if s.startswith("http://") or s.startswith("https://") or s.startswith("git@"):
+        parts = [p for p in s.rstrip("/").split("/") if p]
+        if parts:
+            repo_name = parts[-1].replace(".git", "")
+            if len(parts) >= 2 and ("github.com" in s or "gitlab.com" in s):
+                return f"{repo_name} ({parts[-2]}/{repo_name})"
+            return repo_name
+    try:
+        p = Path(s)
+        return p.name or s
+    except Exception:
+        return repo_path_or_url
+
+
 # ---------------------------------------------------------
 # SIDEBAR CONTROL PANEL
 # ---------------------------------------------------------
@@ -133,39 +170,37 @@ with st.sidebar:
         """
         <div class="sidebar-brand">
             <div class="brand-title">RepoEvolution</div>
-            <div class="brand-subtitle">Software Evolution Intelligence Engine</div>
+            <div class="brand-subtitle">Repository Intelligence</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown('<div class="sidebar-section-title">Project</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section-title">REPOSITORY</div>', unsafe_allow_html=True)
     repo_input = st.text_input(
-        "Repository Path",
+        "Repository",
         value=st.session_state.current_repo or str(PROJECT_ROOT),
-        help="Absolute path to target Python repository",
-        label_visibility="visible"
+        help="Analyze a local Git repository or public Git URL.",
+        label_visibility="collapsed"
     )
+    st.markdown('<p style="font-size: 0.76rem; color: #64748b; margin-top: -8px; margin-bottom: 8px;">Analyze a local Git repository or public Git URL.</p>', unsafe_allow_html=True)
+    analyze_clicked = st.button("Analyze Repository", type="primary", use_container_width=True)
 
-    btn_col1, btn_col2 = st.columns(2)
-    with btn_col1:
-        analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
-    with btn_col2:
-        demo_clicked = st.button("Load Demo", use_container_width=True)
-
-    if analyze_clicked or demo_clicked:
-        target_path = str(PROJECT_ROOT) if demo_clicked else repo_input
+    if analyze_clicked:
+        target_path_input = repo_input
         with st.status("Analyzing repository...", expanded=True) as status_box:
             try:
-                st.write("1/4 Loading repository structure...")
-                files_count, entities_count = st.session_state.indexer.index_repository(target_path)
-                st.write("2/4 Performing AST extraction...")
+                st.write("1/4 Validating path & fetching repository...")
+                resolved_repo_path = validate_repository_path(target_path_input)
+                resolved_str = str(resolved_repo_path)
+                st.write("2/4 Loading structure & AST extraction...")
+                files_count, entities_count = st.session_state.indexer.index_repository(resolved_str)
                 st.write(f"Indexed {files_count} files ({entities_count} AST entities)")
                 st.write("3/4 Building BM25 & FAISS search index...")
                 st.write("4/4 Constructing dependency graph...")
                 st.session_state.graph_builder.build_graph(st.session_state.indexer.entities)
                 st.session_state.repo_ingested = True
-                st.session_state.current_repo = target_path
+                st.session_state.current_repo = resolved_str
                 st.session_state.last_analyzed = datetime.datetime.now().strftime("%H:%M:%S")
                 status_box.update(label=f"Analysis Ready ({files_count} files, {entities_count} entities)", state="complete", expanded=False)
                 st.toast(f"Successfully indexed {entities_count} AST entities.")
@@ -174,59 +209,68 @@ with st.sidebar:
                 st.error(f"Ingestion error: {e}")
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-section-title">Repository Status</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section-title">REPOSITORY STATUS</div>', unsafe_allow_html=True)
 
     files_cnt = len(set(e.file_path for e in st.session_state.indexer.entities)) if st.session_state.repo_ingested else 0
     entities_cnt = len(st.session_state.indexer.entities) if st.session_state.repo_ingested else 0
     repo_status_dot = '<span class="status-dot green"></span> <span class="status-text-active">Indexed</span>' if st.session_state.repo_ingested else '<span class="status-dot gray"></span> <span class="status-text-offline">Not Indexed</span>'
+    last_analyzed_str = st.session_state.get("last_analyzed") or "Not analyzed yet"
+    display_repo_name = format_repo_display_name(st.session_state.current_repo or repo_input)
 
     st.markdown(
         f"""
         <div class="status-card">
+            <div style="font-weight: 700; color: #f1f5f9; font-size: 0.85rem; margin-bottom: 8px; word-break: break-all;">{display_repo_name}</div>
             <div class="status-row"><span>Status</span>{repo_status_dot}</div>
             <div class="status-row"><span>Files</span><span class="status-val">{files_cnt}</span></div>
             <div class="status-row"><span>Entities</span><span class="status-val">{entities_cnt}</span></div>
-            <div class="status-row"><span>Last Analyzed</span><span class="status-val">{st.session_state.last_analyzed or 'Never'}</span></div>
+            <div class="status-row"><span>Last analyzed</span><span class="status-val">{last_analyzed_str}</span></div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-section-title">AI Status</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section-title">AI STATUS</div>', unsafe_allow_html=True)
 
-    is_llm_active = bool(st.session_state.llm_provider.client and st.session_state.llm_provider.api_key)
+    is_llm_avail = st.session_state.llm_provider.is_available()
+    provider_name = st.session_state.llm_provider.get_provider_name()
     model_name = st.session_state.llm_provider.get_available_model_name()
-    status_dot = '<span class="status-dot green"></span> <span class="status-text-active">Active</span>' if is_llm_active else '<span class="status-dot gray"></span> <span class="status-text-offline">Offline</span>'
+
+    if is_llm_avail:
+        ai_status_row = f'<div class="status-row"><span>Provider</span><span class="status-val"><span class="status-dot green"></span> {provider_name}</span></div>'
+        ai_model_row = f'<div class="status-row"><span>Model</span><span class="status-val">{model_name}</span></div>'
+    else:
+        ai_status_row = '<div class="status-row"><span>Provider</span><span class="status-val" style="color:#f87171;"><span class="status-dot gray"></span> AI unavailable</span></div>'
+        ai_model_row = '<div class="status-row"><span>Model</span><span class="status-val" style="color:#94a3b8;">Offline / Quota</span></div>'
 
     st.markdown(
         f"""
         <div class="status-card">
-            <div class="status-row"><span>Gemini</span>{status_dot}</div>
-            <div class="status-row"><span>Model</span><span class="status-val">{model_name}</span></div>
+            {ai_status_row}
+            {ai_model_row}
         </div>
         """,
         unsafe_allow_html=True
     )
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-section-title">System Components</div>', unsafe_allow_html=True)
-
-    st.markdown(
-        """
-        <div class="quick-info-card">
-            <div class="info-row"><span class="info-label">AST Parser</span><span><span class="status-dot green"></span> <span class="status-text-active">Active</span></span></div>
-            <div class="info-row"><span class="info-label">Hybrid Search</span><span><span class="status-dot blue"></span> <span class="status-text-active">Active</span></span></div>
-            <div class="info-row"><span class="info-label">Semantic Diff</span><span><span class="status-dot green"></span> <span class="status-text-active">Active</span></span></div>
-            <div class="info-row"><span class="info-label">DriftGuard</span><span><span class="status-dot green"></span> <span class="status-text-active">Active</span></span></div>
-            <div class="info-row"><span class="info-label">Grounded Copilot</span><span><span class="status-dot green"></span> <span class="status-text-active">Active</span></span></div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    with st.expander("System Details ▸", expanded=False):
+        st.markdown(
+            """
+            <div style="font-size: 0.78rem; color: #94a3b8;">
+                <div style="padding: 3px 0;"><span class="status-dot green"></span> AST Parser: Active</div>
+                <div style="padding: 3px 0;"><span class="status-dot blue"></span> Hybrid Search: Active</div>
+                <div style="padding: 3px 0;"><span class="status-dot green"></span> Semantic Diff: Active</div>
+                <div style="padding: 3px 0;"><span class="status-dot green"></span> DriftGuard: Active</div>
+                <div style="padding: 3px 0;"><span class="status-dot green"></span> Grounded Copilot: Active</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-section-title">User</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section-title">USER</div>', unsafe_allow_html=True)
     st.write(f"**{st.session_state.user_name}**")
     if st.button("Logout", use_container_width=True):
         st.session_state.authenticated = False
@@ -378,21 +422,30 @@ with tab_overview:
             )
 
             # B. Language & File Composition
+            total_f = files_cnt or 1
+            py_f = sum(1 for f in file_paths if f.endswith(".py"))
+            md_f = sum(1 for f in file_paths if f.endswith(".md"))
+            other_f = max(0, total_f - py_f - md_f)
+
+            py_pct = int((py_f / total_f) * 100)
+            md_pct = int((md_f / total_f) * 100)
+            other_pct = max(0, 100 - py_pct - md_pct)
+
             st.markdown(
-                """
+                f"""
                 <div class="dash-card">
                     <div class="dash-card-title">Repository File Composition</div>
                     <div class="bar-row">
-                        <div class="bar-label-group"><span>Python Source (.py)</span><span>92%</span></div>
-                        <div class="bar-track"><div class="bar-fill" style="width: 92%;"></div></div>
+                        <div class="bar-label-group"><span>Python Source (.py)</span><span>{py_pct}%</span></div>
+                        <div class="bar-track"><div class="bar-fill" style="width: {py_pct}%;"></div></div>
                     </div>
                     <div class="bar-row">
-                        <div class="bar-label-group"><span>Markdown Docs (.md)</span><span>5%</span></div>
-                        <div class="bar-track"><div class="bar-fill" style="width: 5%; background: #06b6d4;"></div></div>
+                        <div class="bar-label-group"><span>Markdown Docs (.md)</span><span>{md_pct}%</span></div>
+                        <div class="bar-track"><div class="bar-fill" style="width: {md_pct}%; background: #06b6d4;"></div></div>
                     </div>
                     <div class="bar-row">
-                        <div class="bar-label-group"><span>Configuration (.json / .yaml)</span><span>3%</span></div>
-                        <div class="bar-track"><div class="bar-fill" style="width: 3%; background: #a855f7;"></div></div>
+                        <div class="bar-label-group"><span>Configuration & Other</span><span>{other_pct}%</span></div>
+                        <div class="bar-track"><div class="bar-fill" style="width: {other_pct}%; background: #a855f7;"></div></div>
                     </div>
                 </div>
                 """,
@@ -532,12 +585,24 @@ with tab_diff:
 
     target_repo_path = st.session_state.current_repo or str(PROJECT_ROOT)
 
-    diff_summary = st.session_state.get("last_semantic_summary", None)
-    val_added = diff_summary.total_added if diff_summary else 0
-    val_removed = diff_summary.total_removed if diff_summary else 0
-    val_modified = diff_summary.total_modified if diff_summary else 0
-    val_sig = diff_summary.total_signature_changed if diff_summary else 0
-    val_renamed = diff_summary.total_renamed if diff_summary else 0
+    active_summary = st.session_state.get("last_semantic_summary", None)
+    active_diffs = st.session_state.get("last_semantic_diffs", None)
+    active_base_sha = st.session_state.get("last_base_sha", "")
+    active_target_sha = st.session_state.get("last_target_sha", "")
+
+    from src.core.models import SemanticChangeType
+    if active_diffs is not None:
+        val_added = sum(1 for d in active_diffs if d.change_type == SemanticChangeType.ADDED)
+        val_removed = sum(1 for d in active_diffs if d.change_type == SemanticChangeType.REMOVED)
+        val_modified = sum(1 for d in active_diffs if d.change_type in (SemanticChangeType.MODIFIED, SemanticChangeType.DOCSTRING_CHANGED))
+        val_sig = sum(1 for d in active_diffs if d.change_type == SemanticChangeType.SIGNATURE_CHANGED)
+        val_renamed = sum(1 for d in active_diffs if d.change_type in (SemanticChangeType.RENAMED, SemanticChangeType.DEPENDENCY_CHANGED))
+    else:
+        val_added = 0
+        val_removed = 0
+        val_modified = 0
+        val_sig = 0
+        val_renamed = 0
 
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Added", val_added, "AST Entities")
@@ -566,89 +631,95 @@ with tab_diff:
 
                 diffs = st.session_state.diff_engine.diff_entities(base_entities, target_entities)
                 summary = SemanticSummaryBuilder.build_summary(diffs)
+
                 st.session_state.last_semantic_summary = summary
-
-                st.markdown(f"### Comparison: `{base_sha[:8]}` to `{target_sha[:8]}`")
-
-                st.markdown('<h4 class="subsection-title">Categorized Change Summaries</h4>', unsafe_allow_html=True)
-                if not summary.categorized_summaries:
-                    st.info("No structural changes were detected between these versions.")
-                else:
-                    for summary_stmt in summary.categorized_summaries:
-                        st.markdown(f"- {summary_stmt}")
-
-                st.markdown("---")
-                st.markdown('<h4 class="subsection-title">Structured Entity Diffs</h4>', unsafe_allow_html=True)
-
-                if not diffs:
-                    st.info("No structural changes were detected between these versions.")
-                else:
-                    for idx, diff_item in enumerate(diffs, 1):
-                        ch_type = diff_item.change_type.value
-                        exp_title = f"#{idx} | [{ch_type}] {diff_item.entity_name} ({diff_item.entity_type.value})"
-
-                        with st.expander(exp_title):
-                            c_left, c_right = st.columns(2)
-                            with c_left:
-                                st.markdown(f"**Before:** `{diff_item.file_before or 'N/A'}`")
-                                if diff_item.before_summary:
-                                    st.code(diff_item.before_summary, language="python")
-                            with c_right:
-                                st.markdown(f"**After:** `{diff_item.file_after or 'N/A'}`")
-                                if diff_item.after_summary:
-                                    st.code(diff_item.after_summary, language="python")
-
-                            st.markdown(f"**Evidence:** {diff_item.evidence}")
-                            st.markdown(f"**Similarity Score:** `{diff_item.similarity_score}`")
-                            if diff_item.affected_dependencies:
-                                st.markdown(f"**Affected Dependencies:** `{', '.join(diff_item.affected_dependencies)}`")
-
-                # LLM Explanation with Graceful Error Handling
-                st.markdown("---")
-                st.markdown('<h4 class="subsection-title">LLM Architectural Explanation</h4>', unsafe_allow_html=True)
-                with st.spinner("Generating evidence-grounded explanation..."):
-                    diff_lines = []
-                    for d in diffs[:10]:
-                        diff_lines.append(
-                            f"[{d.change_type.value}] {d.entity_name} ({d.entity_type.value})\n"
-                            f"  Files: before='{d.file_before}', after='{d.file_after}'\n"
-                            f"  Evidence: {d.evidence}\n"
-                            f"  Dependencies affected: {d.affected_dependencies}\n"
-                        )
-                    diff_details_text = "\n".join(diff_lines) if diff_lines else "No entity diffs detected."
-                    summary_text = " | ".join(summary.categorized_summaries)
-
-                    try:
-                        system_template = settings.get_prompt_template("prompt_semantic_diff.txt")
-                    except FileNotFoundError:
-                        system_template = "Analyze AST changes:\n<semantic_diff_evidence>\nBase: {base_commit}\nTarget: {target_commit}\nSummary: {summary_text}\nDiffs:\n{diff_details}\n</semantic_diff_evidence>"
-
-                    full_prompt = system_template.format(
-                        base_commit=base_sha[:8],
-                        target_commit=target_sha[:8],
-                        summary_text=summary_text,
-                        total_diffs=len(diffs),
-                        diff_details=diff_details_text
-                    )
-
-                    if st.session_state.llm_provider.client and st.session_state.llm_provider.api_key:
-                        try:
-                            res = st.session_state.llm_provider.client.models.generate_content(
-                                model=st.session_state.llm_provider.active_model,
-                                contents=full_prompt
-                            )
-                            st.markdown(res.text or "No explanation generated.")
-                        except Exception as ex:
-                            render_quota_error_card()
-                    else:
-                        st.markdown(
-                            f"**Base Commit:** `{base_sha[:8]}` | **Target Commit:** `{target_sha[:8]}`\n\n"
-                            f"#### Categorized Summary:\n"
-                            + "\n".join([f"- {s}" for s in summary.categorized_summaries])
-                        )
-
+                st.session_state.last_semantic_diffs = diffs
+                st.session_state.last_base_sha = base_sha
+                st.session_state.last_target_sha = target_sha
+                st.rerun()
             except Exception as e:
                 st.error(f"Semantic comparison error: {e}")
+
+    if active_summary and active_diffs is not None:
+        st.markdown(f"### Comparison: `{active_base_sha[:8]}` to `{active_target_sha[:8]}`")
+
+        st.markdown('<h4 class="subsection-title">Categorized Change Summaries</h4>', unsafe_allow_html=True)
+        if not active_summary.categorized_summaries:
+            st.info("No structural changes were detected between these versions.")
+        else:
+            for summary_stmt in active_summary.categorized_summaries:
+                st.markdown(f"- {summary_stmt}")
+
+        st.markdown("---")
+        st.markdown('<h4 class="subsection-title">Structured Entity Diffs</h4>', unsafe_allow_html=True)
+
+        if not active_diffs:
+            st.info("No structural changes were detected between these versions.")
+        else:
+            for idx, diff_item in enumerate(active_diffs, 1):
+                ch_type = diff_item.change_type.value
+                exp_title = f"#{idx} | [{ch_type}] {diff_item.entity_name} ({diff_item.entity_type.value})"
+
+                with st.expander(exp_title):
+                    c_left, c_right = st.columns(2)
+                    with c_left:
+                        st.markdown(f"**Before:** `{diff_item.file_before or 'N/A'}`")
+                        if diff_item.before_summary:
+                            st.code(diff_item.before_summary, language="python")
+                    with c_right:
+                        st.markdown(f"**After:** `{diff_item.file_after or 'N/A'}`")
+                        if diff_item.after_summary:
+                            st.code(diff_item.after_summary, language="python")
+
+                    st.markdown(f"**Evidence:** {diff_item.evidence}")
+                    st.markdown(f"**Similarity Score:** `{diff_item.similarity_score}`")
+                    if diff_item.affected_dependencies:
+                        st.markdown(f"**Affected Dependencies:** `{', '.join(diff_item.affected_dependencies)}`")
+
+        # LLM Explanation with Graceful Error Handling
+        st.markdown("---")
+        st.markdown('<h4 class="subsection-title">LLM Architectural Explanation</h4>', unsafe_allow_html=True)
+        with st.spinner("Generating evidence-grounded explanation..."):
+            diff_lines = []
+            for d in active_diffs[:10]:
+                diff_lines.append(
+                    f"[{d.change_type.value}] {d.entity_name} ({d.entity_type.value})\n"
+                    f"  Files: before='{d.file_before}', after='{d.file_after}'\n"
+                    f"  Evidence: {d.evidence}\n"
+                    f"  Dependencies affected: {d.affected_dependencies}\n"
+                )
+            diff_details_text = "\n".join(diff_lines) if diff_lines else "No entity diffs detected."
+            summary_text = " | ".join(active_summary.categorized_summaries)
+
+            try:
+                system_template = settings.get_prompt_template("prompt_semantic_diff.txt")
+            except FileNotFoundError:
+                system_template = "Analyze AST changes:\n<semantic_diff_evidence>\nBase: {base_commit}\nTarget: {target_commit}\nSummary: {summary_text}\nDiffs:\n{diff_details}\n</semantic_diff_evidence>"
+
+            full_prompt = system_template.format(
+                base_commit=active_base_sha[:8],
+                target_commit=active_target_sha[:8],
+                summary_text=summary_text,
+                total_diffs=len(active_diffs),
+                diff_details=diff_details_text
+            )
+
+            if st.session_state.llm_provider.is_available():
+                try:
+                    res = st.session_state.llm_provider.client.models.generate_content(
+                        model=st.session_state.llm_provider.active_model,
+                        contents=full_prompt
+                    )
+                    st.markdown(res.text or "No explanation generated.")
+                except Exception as ex:
+                    render_quota_error_card()
+            else:
+                st.markdown(
+                    f"**Base Commit:** `{active_base_sha[:8]}` | **Target Commit:** `{active_target_sha[:8]}`\n\n"
+                    f"#### Categorized Summary:\n"
+                    + "\n".join([f"- {s}" for s in active_summary.categorized_summaries])
+                )
+
 
 # ---------------------------------------------------------
 # TAB 4: DRIFTGUARD
@@ -760,7 +831,7 @@ with tab_drift:
                         findings_details=findings_details_text
                     )
 
-                    if st.session_state.llm_provider.client and st.session_state.llm_provider.api_key:
+                    if st.session_state.llm_provider.is_available():
                         try:
                             res = st.session_state.llm_provider.client.models.generate_content(
                                 model=st.session_state.llm_provider.active_model,
@@ -867,9 +938,10 @@ with tab_copilot:
     st.markdown('<h2 class="section-heading">Grounded Copilot</h2>', unsafe_allow_html=True)
     st.markdown('<p class="section-subheading">Ask natural language questions about your codebase and receive answers grounded in retrieved code evidence.</p>', unsafe_allow_html=True)
 
-    provider_name = st.session_state.llm_provider.__class__.__name__
+    is_llm_avail = st.session_state.llm_provider.is_available()
+    provider_name = st.session_state.llm_provider.get_provider_name()
     model_name = st.session_state.llm_provider.get_available_model_name()
-    llm_badge = "text-green" if st.session_state.llm_provider.client and st.session_state.llm_provider.api_key else "text-blue"
+    ai_status_badge = f'<span class="badge-pill text-green">{provider_name} Active</span><span class="badge-pill text-blue">Model: {model_name}</span>' if is_llm_avail else '<span class="badge-pill" style="color:#f87171; border-color:rgba(239,68,68,0.3);">AI Unavailable</span><span class="badge-pill text-blue">Mode: Offline Evidence Index</span>'
 
     if not st.session_state.repo_ingested:
         st.markdown(
@@ -892,7 +964,7 @@ with tab_copilot:
                     <span>➔</span>
                     <span class="nlp-step-pill">3. Code Evidence Bundle</span>
                     <span>➔</span>
-                    <span class="nlp-step-pill">4. Gemini Grounded Answer</span>
+                    <span class="nlp-step-pill">4. Grounded Answer Engine</span>
                 </div>
             </div>
             """,
@@ -905,8 +977,7 @@ with tab_copilot:
                 <div class="copilot-header-strip">
                     <span class="strip-title">Ask RepoEvolution</span>
                     <span class="strip-badge-group">
-                        <span class="badge-pill {llm_badge}">Gemini Active</span>
-                        <span class="badge-pill text-blue">Model: {model_name}</span>
+                        {ai_status_badge}
                         <span class="badge-pill">Grounded Retrieval: AST + BM25 + FAISS</span>
                     </span>
                 </div>
@@ -918,88 +989,72 @@ with tab_copilot:
         # 8 Preset Question Buttons
         st.markdown('<div style="font-size: 0.8rem; color: #64748b; margin-bottom: 6px;">Suggested Preset Questions:</div>', unsafe_allow_html=True)
         sq_c1, sq_c2, sq_c3, sq_c4 = st.columns(4)
-        preset_q = ""
+        preset_clicked_q = ""
         with sq_c1:
             if st.button("Where is indexing implemented?", use_container_width=True):
-                preset_q = "Where is repository indexing implemented?"
+                preset_clicked_q = "Where is repository indexing implemented?"
             if st.button("Main architectural components?", use_container_width=True):
-                preset_q = "What are the main architectural components?"
+                preset_clicked_q = "What are the main architectural components?"
         with sq_c2:
             if st.button("How does authentication work?", use_container_width=True):
-                preset_q = "How does authentication work?"
+                preset_clicked_q = "How does authentication work?"
             if st.button("What happens on repo analysis?", use_container_width=True):
-                preset_q = "What happens when a repository is analyzed?"
+                preset_clicked_q = "What happens when a repository is analyzed?"
         with sq_c3:
             if st.button("Which components depend on Indexer?", use_container_width=True):
-                preset_q = "Which components depend on RepositoryIndexer?"
+                preset_clicked_q = "Which components depend on RepositoryIndexer?"
             if st.button("Where is Gemini integrated?", use_container_width=True):
-                preset_q = "Where is Gemini integrated?"
+                preset_clicked_q = "Where is Gemini integrated?"
         with sq_c4:
             if st.button("How does semantic compare work?", use_container_width=True):
-                preset_q = "How does semantic comparison work?"
+                preset_clicked_q = "How does semantic comparison work?"
             if st.button("Highest-impact dependencies?", use_container_width=True):
-                preset_q = "What are the highest-impact dependencies?"
+                preset_clicked_q = "What are the highest-impact dependencies?"
 
-        user_question = st.text_area(
-            "Question",
-            value=preset_q or "",
-            height=85,
-            placeholder="Ask anything about your repository (e.g., Where is indexing implemented? What depends on this file?)...",
-            label_visibility="collapsed"
-        )
+        # Explicit Form for Question Input & Submission (Prevents auto-submit on typing; Enter key submits form)
+        with st.form(key="copilot_input_form", clear_on_submit=False):
+            user_question_input = st.text_input(
+                "Question Input",
+                value="",
+                placeholder="Ask anything about your repository (e.g., Where is indexing implemented?)... Press Enter or click Ask Copilot.",
+                label_visibility="collapsed"
+            )
+            form_submitted = st.form_submit_button("Ask Copilot", type="primary", use_container_width=True)
 
-        btn_ask, btn_clear = st.columns([4, 1])
-        with btn_ask:
-            submit_btn = st.button("Ask Copilot", type="primary", use_container_width=True)
-        with btn_clear:
-            if st.button("Clear Conversation", use_container_width=True):
-                st.session_state.copilot_chat_history = []
-                st.rerun()
+        if st.button("Clear Conversation", use_container_width=True):
+            st.session_state.current_question = ""
+            st.session_state.current_answer = ""
+            st.session_state.current_citations = []
+            st.session_state.current_entities = []
+            st.session_state.conversation_history = []
+            st.rerun()
 
-        if (submit_btn or preset_q) and (user_question.strip() or preset_q):
-            active_query = user_question.strip() or preset_q
-            with st.spinner("Retrieving code evidence & generating grounded answer..."):
-                search_results = st.session_state.indexer.search(query=active_query, top_k=5)
+        query_to_run = ""
+        if form_submitted and user_question_input.strip():
+            query_to_run = user_question_input.strip()
+        elif preset_clicked_q:
+            query_to_run = preset_clicked_q
+
+        if query_to_run:
+            # Move previous current conversation turn to history before generating new answer
+            if st.session_state.current_question and st.session_state.current_answer:
+                st.session_state.conversation_history.append({
+                    "question": st.session_state.current_question,
+                    "answer": st.session_state.current_answer,
+                    "citations": st.session_state.current_citations,
+                    "entities": st.session_state.current_entities
+                })
+
+            with st.spinner("Analyzing repository evidence..."):
+                search_results = st.session_state.indexer.search(query=query_to_run, top_k=5)
                 retrieved_entities = [r.entity for r in search_results]
 
-                # Determine NLP Intent & Symbol extraction for UI transparency
-                target_symbol = retrieved_entities[0].name if retrieved_entities else "Repository"
-                intent_label = "Dependency Analysis" if "depend" in active_query.lower() else "Code Implementation Lookup"
-
-                st.markdown(
-                    f"""
-                    <div class="nlp-intent-box">
-                        <div style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; margin-bottom: 6px;">How RepoEvolution Processed Your Query</div>
-                        <div class="nlp-intent-grid">
-                            <div class="nlp-intent-item">
-                                <span class="nlp-intent-lbl">Detected Intent</span>
-                                <span class="nlp-intent-val">{intent_label}</span>
-                            </div>
-                            <div class="nlp-intent-item">
-                                <span class="nlp-intent-lbl">Extracted Symbol</span>
-                                <span class="nlp-intent-val">{target_symbol}</span>
-                            </div>
-                            <div class="nlp-intent-item">
-                                <span class="nlp-intent-lbl">Retrieval Method</span>
-                                <span class="nlp-intent-val">BM25 + FAISS</span>
-                            </div>
-                            <div class="nlp-intent-item">
-                                <span class="nlp-intent-lbl">Evidence Retrieved</span>
-                                <span class="nlp-intent-val">{len(retrieved_entities)} Code Entities</span>
-                            </div>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                # Include recent chat history context for conversational follow-ups
+                # Include prior conversation context for conversational continuity
                 recent_chat_ctx = ""
-                if st.session_state.copilot_chat_history:
+                if st.session_state.conversation_history:
                     chat_lines = []
-                    for turn in st.session_state.copilot_chat_history[-4:]:
-                        role_label = "User" if turn["role"] == "user" else "Copilot"
-                        chat_lines.append(f"{role_label}: {turn['content'][:200]}")
+                    for turn in st.session_state.conversation_history[-4:]:
+                        chat_lines.append(f"User: {turn['question']}\nCopilot: {turn['answer'][:200]}")
                     recent_chat_ctx = "Prior Conversation Context:\n" + "\n".join(chat_lines) + "\n\n"
 
                 evidence_lines = []
@@ -1015,44 +1070,52 @@ with tab_copilot:
 
                 evidence_summary = recent_chat_ctx + "\n".join(evidence_lines)
                 copilot_resp = st.session_state.llm_provider.generate_grounded_answer(
-                    question=active_query,
+                    question=query_to_run,
                     retrieved_entities=retrieved_entities,
                     evidence_summary=evidence_summary
                 )
 
-                # Append to chat history
-                st.session_state.copilot_chat_history.append({"role": "user", "content": active_query})
-                st.session_state.copilot_chat_history.append({
-                    "role": "assistant",
-                    "content": copilot_resp.answer,
-                    "citations": copilot_resp.citations,
-                    "retrieved_entities": retrieved_entities
-                })
+                st.session_state.current_question = query_to_run
+                st.session_state.current_answer = copilot_resp.answer
+                st.session_state.current_citations = copilot_resp.citations
+                st.session_state.current_entities = retrieved_entities
+                st.rerun()
 
-        # Render Conversation History & Grounded Code Evidence
-        if st.session_state.copilot_chat_history:
-            st.markdown('<h3 class="subsection-title">Conversation History</h3>', unsafe_allow_html=True)
-            for turn in st.session_state.copilot_chat_history:
-                if turn["role"] == "user":
-                    st.markdown(f'<div class="chat-bubble-user"><strong>User:</strong> {turn["content"]}</div>', unsafe_allow_html=True)
-                else:
-                    if "Error querying Gemini API" in turn["content"]:
-                        render_quota_error_card()
-                    else:
-                        st.markdown(f'<div class="chat-bubble-ai"><strong>Copilot:</strong><br/>{turn["content"]}</div>', unsafe_allow_html=True)
+        # RENDER CURRENT ANSWER (Only latest question & answer)
+        if st.session_state.current_question:
+            st.markdown('<h3 class="subsection-title">Current Answer</h3>', unsafe_allow_html=True)
+            st.markdown(f'<div class="chat-bubble-user"><strong>User:</strong> {st.session_state.current_question}</div>', unsafe_allow_html=True)
 
-                    if turn.get("citations"):
-                        st.markdown('<h4 style="font-size: 0.85rem; color: #38bdf8; margin: 10px 0 6px 0;">Grounded Code Evidence:</h4>', unsafe_allow_html=True)
-                        for idx, cite in enumerate(turn["citations"], 1):
-                            st.markdown(
-                                f"""
-                                <div class="citation-card">
-                                    <div class="citation-ref">SOURCE #{idx}: {cite.reference}</div>
-                                    <div class="citation-snippet">"{cite.snippet}"</div>
-                                </div>
-                                """,
-                                unsafe_allow_html=True
-                            )
+            if "Error querying Gemini API" in st.session_state.current_answer:
+                render_quota_error_card()
+            else:
+                st.markdown(f'<div class="chat-bubble-ai"><strong>Copilot:</strong><br/>{st.session_state.current_answer}</div>', unsafe_allow_html=True)
+
+            if st.session_state.current_citations:
+                st.markdown('<h4 style="font-size: 0.85rem; color: #38bdf8; margin: 10px 0 6px 0;">Grounded Code Evidence:</h4>', unsafe_allow_html=True)
+                for idx, cite in enumerate(st.session_state.current_citations, 1):
+                    st.markdown(
+                        f"""
+                        <div class="citation-card">
+                            <div class="citation-ref">SOURCE #{idx}: {cite.reference}</div>
+                            <div class="citation-snippet">"{cite.snippet}"</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+        # RENDER CONVERSATION HISTORY (Collapsed expander, previous conversations only)
+        if st.session_state.conversation_history:
+            st.markdown("<br/>", unsafe_allow_html=True)
+            with st.expander("Conversation History ▸", expanded=False):
+                for h_idx, past_turn in enumerate(reversed(st.session_state.conversation_history), 1):
+                    st.markdown(f'<div class="chat-bubble-user" style="max-width: 100%;"><strong>User:</strong> {past_turn["question"]}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="chat-bubble-ai" style="max-width: 100%;"><strong>Copilot:</strong><br/>{past_turn["answer"]}</div>', unsafe_allow_html=True)
+                    if past_turn.get("citations"):
+                        st.markdown('<div style="font-size: 0.78rem; color: #38bdf8; margin-top: 4px;">Grounded Evidence Sources:</div>', unsafe_allow_html=True)
+                        for cite in past_turn["citations"]:
+                            st.markdown(f'- `{cite.reference}`: *"{cite.snippet}"*')
+                    st.markdown('<div style="height: 1px; background: #1e293b; margin: 14px 0;"></div>', unsafe_allow_html=True)
 
         # Feature Grid
         st.markdown(
