@@ -1,5 +1,6 @@
 # REPOEVOLUTION ⚡
 ### Software Evolution Intelligence Engine & Grounded Developer Copilot
+Demo : https://repoevolution-jsryfuurycqvegymn4eavx.streamlit.app/
 
 RepoEvolution is an NLP-powered developer intelligence system that parses software repositories, builds Abstract Syntax Tree (AST) entity representations, maintains a dependency call-graph (`ChangeGraph`), computes AST semantic diffs (`SemanticDiff`), analyzes multi-commit historical patterns for architectural drift (`DriftGuard`), and provides an evidence-grounded AI Copilot for developer Q&A.
 
